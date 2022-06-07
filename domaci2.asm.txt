@@ -1,0 +1,352 @@
+;Zadatak: Napisati proceduru koja obrce sadrzaj unetog niza i cuva novi niz kao promenljivu. Novi niz odstampati na ekran 
+ 
+
+data SEGMENT                            
+    msg0 DB "Unesite broj elemenata niza: $"    ; cuva string kao promenljivu tipa DB
+    msg1 DB "Unesite element niza: $"
+    msg2 DB "Obrnuti ispis niza: $"
+    msg3 DB "Kraj ispisa! $"
+
+    arr DW 50 dup(?)                    ; rezervise 10 neinicijalizovanih reci od velicine 2B (DW)
+    rev DW 50 dup(?)                    ; rezervise mesto za obrnuti
+    
+    arr_len_str DB "        "           ; string koji ce se parsirati u arr_len
+    arr_len DW ?                        ; rezervise 1 neinicijalizovanu rec od 2B
+    
+    num_str DB "        "               ; string koji ce se parsirati u num
+    num DW ?                            ; broj koji se trenutno unosi
+data ENDS
+
+stck SEGMENT stack                      ; definisanje stek segmenta
+    DW 128 dup(?)                       ; rezervise 128 neinicijalizovanih reci od 2B za stek
+stck ENDS
+
+
+;     COPY PASTE MAKROA I PROCESA S VEZBI
+;---------------------------------------------;
+
+                         
+write MACRO c                           ; #3 ispis jednog znaka na ekran
+    PUSH ax                             ; da bi se ispisao znak na ekran koristi se podprekid 2 prekida 21h
+    PUSH dx                             ;   pri cemu se znak koji treba prikazati u registar DL
+    MOV ah, 02
+    MOV dl, c
+    INT 21h                             ; znak se uvek ispisuje na tekucu poziciju kurzora, a poziciju je
+    POP dx                              ;   moguce promeniti koriscenjem prekida 10h
+    POP ax
+ENDM
+
+key_press MACRO                         ; #4 ucitavanje znaka sa tastature bez prikazivanja i cuvanja
+    PUSH ax                             ; za ucitavanje znaka bez prikazivanja koristi se podprekid 8
+    MOV ah, 08                          ;   prekida 21
+    INT 21h                             ; posle ucitavanja znak se nalazi u registru AL ali ga ignorisemo
+    POP ax                              ; vraca se sacuvana vrednost sa steka u registar AX
+ENDM
+
+write_str MACRO s                       ; #5 ispisivanje stringa na ekran
+    PUSH ax                             ; pri ispisu stringa koristi se podprekid 9 prekida 21h
+    PUSH dx
+    MOV dx, OFFSET s                    ; pre poziva u DX se smesta ofsetna adresa stringa koji se ispisuje
+    MOV ah, 09                          ;   a string se zavrsava znakom $
+    INT 21h
+    POP dx
+    POP ax
+ENDM
+
+end_prog MACRO                          ; #7 kraj programa
+    MOV ax, 4c02h
+    INT 21h
+ENDM
+                         
+
+code_seg SEGMENT
+    
+                  
+new_line PROC                           ; #1 procedura koja prebacuje ispis na ekranu u novi red
+    PUSH ax                             ; pamtimo na steku sadrzaj svih registara koji se koriste
+    PUSH bx
+    PUSH cx
+    PUSH dx
+    MOV ah, 03
+    MOV bh, 0
+    INT 10h                             ; citanje pozicije kurzora
+    INC dh                              ; povecavanje broja vrste
+    MOV dl, 0                           ; skok na pocetak kolone
+    MOV ah, 02
+    INT 10h                             ; postavljanje kurzora
+    POP dx                              ; uklanjanje vrednosti sa steka
+    POP cx
+    POP bx
+    POP ax
+    RET
+new_line ENDP
+
+read_str PROC                           ; #2 poziv ocekuje max_char i ofsetnu adresu stringa na steku
+    PUSH ax
+    PUSH bx
+    PUSH cx
+    PUSH dx                             ; DX je ofsetna adresa stringa (preskace se 10 bajtova za registre
+    PUSH si                             ;   AX, BX, CX, DX i SI i 2 za povratnu adresu)
+    MOV bp, sp
+    MOV dx, [bp + 12]
+    MOV bx, dx
+    MOV ax, [bp + 14]                   ; maksimalna duzina stringa
+    MOV byte [bx], al                   ; na prvom mestu se mora naci duzina stringa
+    MOV ah, 0Ah
+    INT 21h
+    MOV si, dx                          ; u SI se stavlja ofsetna adresa stringa
+    MOV cl, [si + 1]
+    MOV ch, 0                           ; broj ucitanih znakova
+read_str_copy:                          ; petljom pomeramo znakove za dva mesta ulevo
+    MOV al, [si + 2]                    ; uzima se znak 2B desno
+    MOV [si], al                        ; stavlja se na mesto SI
+    INC si                              ; SI se inkrementira
+    LOOP read_str_copy                  ; ponavlja se CL puta
+    MOV [si], '$'                       ; nakon zavrsetka pomeranja na kraj stringa se stavlja terminator    
+    POP si
+    POP dx
+    POP cx
+    POP bx
+    POP ax                              ; uklanjanje vrednosti sa steka
+    RET 4
+read_str ENDP
+
+str_to_int PROC                         ; #zad konvertovanje stringa u broj
+    PUSH ax
+    PUSH bx
+    PUSH cx
+    PUSH dx
+    PUSH si
+    MOV bp, sp
+    MOV bx, [bp + 14]
+    MOV ax, 0
+    MOV cx, 0
+    MOV si, 10
+str_to_int_loop:
+    MOV cl, [bx]
+    CMP cl, '$'
+    JE str_to_int_proc_end
+    MUL si
+    SUB cx, 48
+    ADD ax, cx
+    INC bx
+    JMP str_to_int_loop
+str_to_int_proc_end:
+    MOV bx, [bp + 12]
+    MOV [bx], ax
+    POP si
+    POP dx
+    POP cx
+    POP bx
+    POP ax
+    RET 4
+str_to_int ENDP
+
+int_to_str PROC                         ; #zad konvertovanje broja u string
+    PUSH ax
+    PUSH bx
+    PUSH cx
+    PUSH dx
+    PUSH si
+    MOV bp, sp
+    MOV ax, [bp + 14]
+    MOV dl, '$'
+    PUSH dx
+    MOV si, 10
+int_to_str_loop0:
+    MOV dx, 0
+    DIV si
+    ADD dx, 48
+    PUSH dx
+    CMP ax, 0
+    JNE int_to_str_loop0
+    MOV bx, [bp + 12]
+int_to_str_loop1:
+    POP dx
+    MOV [bx], dl
+    INC bx
+    CMP dl, '$'
+    JNE int_to_str_loop1
+    POP si
+    POP dx
+    POP cx
+    POP bx
+    POP ax
+    RET 4
+int_to_str ENDP
+;=============================================;        
+                            
+                            
+                            
+                            
+;           Ucitavanje duzine niza    
+;---------------------------------------------; 
+        
+input_arr_len PROC                      
+    CALL new_line                       ;   ispis 
+    write_str msg0                      
+                                           
+    PUSH 6                              ;   unos korisnika
+    PUSH OFFSET arr_len_str             
+    CALL read_str                       
+                                        
+    PUSH OFFSET arr_len_str             ;   konverzija stringa u broj
+    PUSH OFFSET arr_len                 
+    CALL str_to_int                     
+                                        
+    RET                                    
+input_arr_len ENDP                                                                                     
+;=============================================; 
+
+     
+     
+     
+        
+;            Ucitavanje samog niza
+;---------------------------------------------;     
+input_arr PROC                          
+                                        
+    PUSH cx                             
+    PUSH si                             
+                                        
+    MOV cx, arr_len                     ;   smestanje brojaca u SI registar
+    XOR si, si                          
+                                        
+input_arr_loop:                         
+    CALL new_line                        
+    write_str msg1                      
+                                        
+    PUSH 6                              ;   unos korisnika
+    PUSH OFFSET num_str                 
+    CALL read_str                       
+                                         
+    PUSH OFFSET num_str                 ;   konverzija unetog stringa u broj
+    PUSH OFFSET num                     
+    CALL str_to_int                     
+                                        
+    MOV ax, num                         ;   prebacivanje broja na odgovarajuce mesto u nizu
+    MOV arr[si], ax                     
+                                        
+    ADD si, 2                           ;   (nisam siguran ali izgleda da radi ovako)moramo uvecati brojac za 2B buduci da je velicina DW, tj. 2B (pogledati data segment)
+    LOOP input_arr_loop                 
+                                        
+    POP si                              
+    POP cx                              
+                                           
+    RET                                 
+input_arr ENDP                          
+;=============================================;
+
+  
+  
+  
+
+;               Obrtanje niza
+;---------------------------------------------;
+reverse_arr PROC                        
+    PUSH ax                             ; Guramo na stek vrednosti registara koje ce se koristiti u proceduri
+    PUSH bx                             
+    PUSH cx                             
+    PUSH dx                             
+    PUSH si                             
+    PUSH di                                                                                         
+                                        
+    XOR di, di                          ; XOR-om anuliramo DI registar(kao i carry), u odnosu na MOV 0 postavlja ZERO
+                                        
+    MOV cx, arr_len                     ; registar CX dobija vrednost broja elemenata koji se ucitavaju (provera uslova za petlju)
+    MOV si, cx                          ; DI postaje 0, SI postaje arr_len
+    MOV al, 2                           
+    MUL si                              
+    MOV si, ax                          
+                                        
+reverse_arr_loop:                       
+    SUB si, 2                           ;(!Obavezno dodati!) SI pocinje van opsega niza, odmah se dekrementira i tako izbegavamo "off by one" gresku
+    MOV ax, arr[si]                     ; sadrzaj niza na [SI] smestamo u AX registar
+    MOV rev[di], ax                     ; sadrzaj AX registra smestamo u niz rev na [DI]
+    ADD di, 2                           ; Inkrementiramo DI buduci da pocinje od 0
+    CMP si, 0                           ; poredjenje SI sa 0, ukoliko nije jednako idemo ponovo... sve dok ne bude 0
+    LOOP reverse_arr_loop               ;(?) Mozda je moglo pametnije da se odradi???               
+                                        
+    POP di                              ; Cistimo stek, skidamo sve sacuvane vrednosti
+    POP si                              
+    POP dx                              
+    POP cx                              
+    POP bx                              
+    POP ax                              
+    RET                                 
+reverse_arr ENDP                        
+;=============================================;                                                                                             
+
+ 
+ 
+       
+;           Stampanje obrnutog niza
+;---------------------------------------------;                                                                                      
+print_reverse_arr PROC                  
+    PUSH ax                             
+    PUSH cx                            
+    PUSH si                             
+                                        
+    CALL new_line                       
+    MOV cx, arr_len                     
+    XOR si, si                          
+                                        
+print_rev_loop:                         
+    MOV ax, rev[si]                     ;   stavljanje vrednosti trenutnog elementa niza u AX ...
+                                        
+    PUSH ax                             ;  ... nakon cega ga i stampamo
+    PUSH OFFSET num_str                 
+    CALL int_to_str                     
+    write_str num_str                   
+    WRITE ' '                           
+                                        
+    ADD si, 2                           ;   uvecavamo brojac
+    LOOP print_rev_loop                 
+                                        
+    POP si                              
+    POP cx                              
+    POP ax                              
+                                        
+    RET                                 
+print_reverse_arr ENDP                      
+;=============================================;    
+    
+    
+    
+    
+;               Glavni program
+;---------------------------------------------;                                     
+                                         
+start:                                  
+    ASSUME cs: code, ss: stck           
+    MOV ax, data                        
+    MOV ds, ax                          
+                                        
+    CALL input_arr_len                  
+                                        
+    CALL input_arr                      
+                                        
+    CALL reverse_arr                    
+                                        
+    CALL new_line                      
+    write_str msg2                      
+                                        
+    CALL print_reverse_arr              
+                                        
+    CALL new_line                       
+    write_str msg3                      
+    key_press                           
+                                        
+    end_prog                            
+end start                               
+    
+code_seg ENDS
+
+END
+
+;NAPOMENA: Silom navike sam pisao imena oblika "inputArrLen" umesto "input_arr_len" pa sam 2 puta pisao iznova zadatak buduci da...
+;... su makroi i procedure s vezbi napisani u konvenciji koristeci donju crtu radi konzistencije. Trebalo bi da ne postoji instanca...
+;... takve konvencije u ovom fajlu buduci da sad sve radi kako valja ali ne zamerite ukoliko ipak postoje takva preklapanja.
+; Potencijalna doterivanja zadatka: kontrola unosa tokom unosa elemenata niza(provera da li se zapravo unosi broj)
+  
+;=============================================;
