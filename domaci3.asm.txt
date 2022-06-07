@@ -1,0 +1,174 @@
+; napisati rekurzivnu proceduru koja proverava da li je uneti string palindrom
+
+data SEGMENT
+    msg0 DB " je palindrom$"
+    msg1 DB " nije palindrom$" 
+    msg2 DB "unos stringa: $" 
+    msg3 DB "kraj$"
+    
+    str_inp DB "        "
+    
+data ENDS                            
+
+stck SEGMENT stack
+    DW 128 dup(0)
+stck ENDS         
+      
+
+write_str MACRO s                       
+    PUSH ax                             
+    PUSH dx
+    MOV dx, OFFSET s                    
+    MOV ah, 09                          
+    INT 21h
+    POP dx
+    POP ax
+ENDM     
+
+key_press MACRO                         
+    PUSH ax                             
+    MOV ah, 08                          
+    INT 21h                             
+    POP ax                              
+ENDM
+
+end_prog MACRO                          
+    MOV ax, 4c02h
+    INT 21h
+ENDM
+
+
+code_seg SEGMENT
+              
+new_line PROC                           
+    PUSH ax                             
+    PUSH bx
+    PUSH cx
+    PUSH dx
+    MOV ah, 03
+    MOV bh, 0
+    INT 10h                             
+    INC dh                             
+    MOV dl, 0                           
+    MOV ah, 02
+    INT 10h                             
+    POP dx                              
+    POP cx
+    POP bx
+    POP ax
+    RET
+new_line ENDP
+
+read_str PROC                           
+    PUSH ax
+    PUSH bx
+    PUSH cx
+    PUSH dx                             
+    PUSH si                             
+    MOV bp, sp
+    MOV dx, [bp + 12]
+    MOV bx, dx
+    MOV ax, [bp + 14]                   
+    MOV byte [bx], al                   
+    MOV ah, 0Ah
+    INT 21h
+    MOV si, dx                          
+    MOV cl, [si + 1]
+    MOV ch, 0                           
+read_str_copy:                          
+    MOV al, [si + 2]                    
+    MOV [si], al                       
+    INC si                              
+    LOOP read_str_copy                  
+    MOV [si], '$'                        
+    POP si
+    POP dx
+    POP cx
+    POP bx
+    POP ax                             
+    RET 4
+read_str ENDP
+
+
+;----------------------------------------------------------------------------------------------------------------------;
+
+checkPalindrome PROC
+    MOV si, OFFSET str_inp              
+
+checkPalindromeLoop0:                 
+    MOV al, [si]
+    CMP al, '$'
+    JE checkPalindrome_rtrn            
+    
+    INC si
+    JMP checkPalindromeLoop0
+    
+checkPalindrome_rtrn:                  
+    MOV di, OFFSET str_inp
+    DEC si
+    
+    CALL palindrome_rec
+    
+checkPalindrome ENDP
+
+palindrome_rec PROC
+
+checkPalindromeLoop1:
+    CMP si, di                          
+    JL is_palindrome                    
+    
+    MOV al, [si]                        
+    MOV bl, [di]                        
+    CMP al, bl                          
+    JNE not_palindrome                  
+    
+    DEC si                              
+    INC di
+    CALL palindrome_rec
+    
+    write_str str_inp
+    
+is_palindrome:
+    write_str msg0
+    JMP checkPalindrome_end
+    
+not_palindrome:
+    write_str msg1 
+    JMP checkPalindrome_end
+    
+checkPalindrome_end:
+    CALL new_line
+    write_str msg3
+    key_press
+    end_prog    
+palindrome_rec ENDP
+
+start:
+    ASSUME cs: code, ss: stck, ds: data
+    MOV ax, data
+    MOV ds, ax
+    
+    CALL new_line
+    write_str msg2
+    
+    PUSH 6
+    PUSH OFFSET str_inp
+    CALL read_str
+    
+    CALL new_line
+    write_str str_inp
+    
+    CALL checkPalindrome
+     
+end start 
+    
+code_seg ENDS
+
+END           
+;Suma sumarum: pocetna adresa stringa se ucitava u registar SI,gde se ide petljom do kraja stringa proverom znaka '$'.
+;Buduci da necemo da nam string bude oblika "ana$" mi dekrementujemo SI kako bismo dobili normalan string. U DI ide pocetak stringa...
+;... nakon cega se porede indeksi SI i DI i ukoliko su jednaki u pitanju je palindrom neparne duzine.
+; karakter na [SI] ide u al dok karakter na [DI] ide u BL, i ukoliko nisu jednaki u pitanju je rec koja nije palindrom (kraj).
+;provere vrsimo sa is_palindrome i not_palindrome, tj s pozivom JNE nad not_palindrome.  
+
+
